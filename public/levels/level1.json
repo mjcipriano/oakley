@@ -1,0 +1,12 @@
+{
+  "name": "Oakley's Meadow",
+  "bounds": { "width": 1600, "height": 1200 },
+  "spawn": { "x": 320, "y": 320 },
+  "decorations": [
+    { "type": "tree", "x": 420, "y": 500, "radius": 70, "color": "#7cb342" },
+    { "type": "bush", "x": 900, "y": 360, "radius": 50, "color": "#5aa469" },
+    { "type": "pond", "x": 1180, "y": 760, "width": 160, "height": 100, "color": "#74c0fc" },
+    { "type": "rock", "x": 600, "y": 920, "radius": 40, "color": "#868e96" },
+    { "type": "flowers", "x": 300, "y": 800, "radius": 30, "color": "#ffe066" }
+  ]
+}

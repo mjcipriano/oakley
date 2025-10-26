@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oakley's World</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+      --bg: #f0f5f9;
+      --panel: #ffffff;
+      --accent: #ff7f50;
+      --accent-dark: #d36034;
+      --text: #2d3a3a;
+      --muted: #6f8a91;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    h1, h2 {
+      margin: 0 0 16px;
+      text-align: center;
+    }
+
+    button {
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 999px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.1s ease, background 0.2s ease;
+    }
+
+    button:hover {
+      background: var(--accent-dark);
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      background: var(--muted);
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .card {
+      width: min(480px, 100%);
+      background: var(--panel);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: 0 20px 40px rgba(41, 72, 75, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"], select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid #c6d6db;
+      font-size: 1rem;
+      background: #f8fcff;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-6px); }
+      40%, 80% { transform: translateX(6px); }
+    }
+
+    .shake {
+      animation: shake 0.3s ease;
+    }
+
+    .group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #preview-canvas {
+      width: 100%;
+      max-width: 320px;
+      height: 240px;
+      border-radius: 16px;
+      border: 2px dashed #c6d6db;
+      margin: 0 auto;
+      background: #e8f3ff;
+    }
+
+    #game-screen {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      border-radius: 24px;
+      box-shadow: none;
+      padding: 0;
+      background: none;
+    }
+
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 16px;
+      font-weight: 600;
+      color: #365761;
+    }
+
+    #game-container {
+      position: relative;
+      width: min(960px, 100vw - 32px);
+      height: min(640px, 70vh);
+      margin: 0 auto;
+      background: #fef9f3;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 18px 40px rgba(36, 60, 66, 0.25);
+    }
+
+    #game-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="welcome-screen" class="card">
+    <h1>Welcome to Oakley's World</h1>
+    <div class="group">
+      <label for="world-name">World name</label>
+      <input id="world-name" type="text" placeholder="e.g. oakley" autocomplete="off" />
+    </div>
+    <div class="button-row">
+      <button id="customize-btn">Customize</button>
+      <button id="join-btn">Join</button>
+    </div>
+    <p style="text-align:center; color: var(--muted); margin:0;">
+      Customize to make your perfect pup, or jump right in with a surprise dog!
+    </p>
+  </div>
+
+  <div id="customize-screen" class="card hidden">
+    <h2>Customize Your Dog</h2>
+    <canvas id="preview-canvas" width="320" height="240"></canvas>
+    <form id="customize-form" class="group">
+      <div>
+        <label for="dog-name">Dog name</label>
+        <input id="dog-name" name="dogName" type="text" maxlength="18" placeholder="Oakley" required />
+      </div>
+      <div>
+        <label for="dog-color">Fur color</label>
+        <select id="dog-color" name="color"></select>
+      </div>
+      <div>
+        <label for="dog-collar">Collar color</label>
+        <select id="dog-collar" name="collar"></select>
+      </div>
+      <div>
+        <label for="dog-hat">Hat</label>
+        <select id="dog-hat" name="hat"></select>
+      </div>
+      <div class="button-row">
+        <button type="button" id="randomize-btn">Randomize</button>
+        <button type="submit">Save</button>
+        <button type="button" id="cancel-customize">Back</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="game-screen" class="hidden">
+    <div id="game-container">
+      <canvas id="game-canvas" width="960" height="640"></canvas>
+      <div id="hud"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
