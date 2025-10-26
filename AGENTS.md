@@ -74,3 +74,6 @@ When extending Oakley’s World:
 - Levels: `public/levels/level1.json` defines world bounds, spawn location, and simple decorations editable by kids.
 - Player setup: customization choices (name, fur color, collar color, hat) persist locally via cookies; random pups are generated when no cookie is present.
 - Collectibles: level JSON supplies 20+ food items with `tags` (e.g., `good`, `bad`, `toxic`); space-bar collection triggers Socket.IO events that adjust per-player scores and hide the treat for everyone.
+- Audio: Web Audio API synthesizes join, walk, chew, and scoring cues; chew duration is controlled by level `chew:*` tags before the server finalizes a collection.
+- Deployment: Dockerfile based on `node:18-alpine` is available; run with `docker build -t oakleys-world .` then `docker run --rm -p 3000:3000 oakleys-world`.
+- Tooling: Makefile shortcuts (`make install`, `make run`, `make docker-run`, etc.) wrap npm and Docker tasks for quick iteration; `docker-compose.yml` exposes the stack on host port 9999 for Portainer or `docker compose up -d`.

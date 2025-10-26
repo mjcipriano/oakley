@@ -33,6 +33,160 @@
     'Oakley', 'Luna', 'Charlie', 'Bailey', 'Scout', 'Harley', 'Mochi', 'Pepper', 'Ziggy', 'Sunny',
   ];
 
+  const audio = createAudioSystem();
+
+  function createAudioSystem() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+      const noop = () => {};
+      return {
+        playGameStart: noop,
+        playFriendJoin: noop,
+        playGoodSnack: noop,
+        playBadSnack: noop,
+        playFootstep: noop,
+        playChew: noop,
+        stopChew: noop,
+      };
+    }
+
+    const context = new AudioCtx();
+    let chewLoop = null;
+
+    const unlock = () => {
+      if (context.state === 'suspended') {
+        context.resume().catch(() => {});
+      }
+    };
+
+    ['pointerdown', 'keydown'].forEach((evt) => {
+      document.addEventListener(evt, unlock, { once: true });
+    });
+
+    function withContext(run) {
+      if (context.state === 'suspended') {
+        context.resume().catch(() => {});
+      }
+      run(context.currentTime);
+    }
+
+    function scheduleTone(freq, duration, type, volume, when) {
+      const oscillator = context.createOscillator();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(freq, when);
+      const gain = context.createGain();
+      const safeVolume = Math.max(volume, 0.0001);
+      gain.gain.setValueAtTime(safeVolume, when);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(when);
+      oscillator.stop(when + duration);
+    }
+
+    function scheduleNoise(duration, volume, when) {
+      const sampleCount = Math.max(1, Math.floor(context.sampleRate * duration));
+      const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < sampleCount; i += 1) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const noise = context.createBufferSource();
+      noise.buffer = buffer;
+      const gain = context.createGain();
+      const safeVolume = Math.max(volume, 0.0001);
+      gain.gain.setValueAtTime(safeVolume, when);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+      noise.connect(gain).connect(context.destination);
+      noise.start(when);
+      noise.stop(when + duration);
+    }
+
+    function playGameStart() {
+      withContext((now) => {
+        scheduleTone(523, 0.18, 'triangle', 0.18, now);
+        scheduleTone(659, 0.16, 'triangle', 0.16, now + 0.1);
+        scheduleTone(784, 0.22, 'sine', 0.14, now + 0.22);
+      });
+    }
+
+    function playFriendJoin() {
+      withContext((now) => {
+        scheduleTone(660, 0.12, 'square', 0.12, now);
+        scheduleTone(880, 0.1, 'square', 0.1, now + 0.08);
+      });
+    }
+
+    function playGoodSnack() {
+      withContext((now) => {
+        scheduleTone(660, 0.2, 'triangle', 0.18, now);
+        scheduleTone(880, 0.18, 'triangle', 0.15, now + 0.14);
+        scheduleTone(1046, 0.22, 'sine', 0.12, now + 0.28);
+      });
+    }
+
+    function playBadSnack() {
+      withContext((now) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(520, now);
+        oscillator.frequency.exponentialRampToValueAtTime(180, now + 0.6);
+        gain.gain.setValueAtTime(0.24, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + 0.6);
+        scheduleNoise(0.25, 0.06, now + 0.2);
+      });
+    }
+
+    function playFootstep() {
+      withContext((now) => {
+        scheduleNoise(0.12, 0.18, now);
+        scheduleTone(130 + Math.random() * 25, 0.1, 'sine', 0.05, now);
+      });
+    }
+
+    function stopChew() {
+      if (chewLoop) {
+        clearInterval(chewLoop.id);
+        chewLoop = null;
+      }
+    }
+
+    function playChew(durationMs) {
+      stopChew();
+      if (!durationMs) return;
+
+      const endTime = performance.now() + durationMs;
+      const tick = () => {
+        if (performance.now() >= endTime) {
+          stopChew();
+          return;
+        }
+        withContext((now) => {
+          scheduleNoise(0.14, 0.12, now);
+          scheduleTone(180 + Math.random() * 40, 0.16, 'square', 0.04, now);
+        });
+      };
+
+      tick();
+      chewLoop = {
+        id: window.setInterval(tick, 240),
+      };
+    }
+
+    return {
+      playGameStart,
+      playFriendJoin,
+      playGoodSnack,
+      playBadSnack,
+      playFootstep,
+      playChew,
+      stopChew,
+    };
+  }
+
   const welcomeScreen = document.getElementById('welcome-screen');
   const customizeScreen = document.getElementById('customize-screen');
   const gameScreen = document.getElementById('game-screen');
@@ -66,6 +220,9 @@
     levelName: DEFAULT_LEVEL,
     hudMessage: '',
     messageTimeout: null,
+    activeChew: null,
+    pendingChew: null,
+    lastFootstep: -1000,
   };
 
   function populateSelect(select, options) {
@@ -377,6 +534,10 @@
       socket.emit('joinWorld', { worldName, player, levelName: state.levelName });
       state.players.set(socket.id, { ...player, id: socket.id, score: player.score ?? 0 });
       setHudMessage('Connected!', 1500);
+      state.pendingChew = null;
+      state.activeChew = null;
+      audio.stopChew();
+      audio.playGameStart();
     });
 
     socket.on('worldData', ({ players, collectibles, levelName }) => {
@@ -384,11 +545,36 @@
         (players || []).map((p) => [p.id, { ...p, score: typeof p.score === 'number' ? p.score : 0 }])
       );
       state.collectibles = new Map(
-        (collectibles || []).map((item) => [item.id, { ...item }])
+        (collectibles || [])
+          .filter((item) => item && item.id)
+          .map((item) => {
+            const claimedAt = item.claimedAt || null;
+            const totalChew = typeof item.chewMs === 'number' ? item.chewMs : null;
+            let remainingMs = null;
+            if (claimedAt && totalChew) {
+              const elapsed = Date.now() - claimedAt;
+              remainingMs = Math.max(0, totalChew - elapsed);
+            }
+            const startPerf =
+              remainingMs !== null && totalChew
+                ? performance.now() - (totalChew - remainingMs)
+                : null;
+            return [
+              item.id,
+              {
+                ...item,
+                chewingBy: item.claimedBy || null,
+                chewingStartedAt: startPerf,
+                chewingEndsAt: remainingMs !== null ? performance.now() + remainingMs : null,
+              },
+            ];
+          })
       );
       if (levelName) {
         state.levelName = levelName;
       }
+      state.pendingChew = null;
+      state.activeChew = null;
       refreshHud();
     });
 
@@ -398,6 +584,9 @@
         score: typeof playerInfo.score === 'number' ? playerInfo.score : 0,
       });
       refreshHud();
+      if (playerInfo.id !== state.localId) {
+        audio.playFriendJoin();
+      }
     });
 
     socket.on('playerMoved', (playerInfo) => {
@@ -419,10 +608,85 @@
       refreshHud();
     });
 
+    socket.on('chewStarted', ({ id, by, duration }) => {
+      if (!id) return;
+      const startPerf = performance.now();
+      const collectible = state.collectibles.get(id);
+      if (collectible) {
+        state.collectibles.set(id, {
+          ...collectible,
+          chewingBy: by,
+          chewingStartedAt: startPerf,
+          chewingEndsAt: startPerf + duration,
+        });
+      }
+
+      if (by === state.localId) {
+        state.pendingChew = null;
+        state.activeChew = { id, finishAt: startPerf + duration, duration };
+        audio.playChew(duration);
+        setHudMessage('Chewing...', duration);
+      } else if (state.pendingChew === id) {
+        state.pendingChew = null;
+      }
+      refreshHud();
+    });
+
+    socket.on('chewCancelled', ({ id }) => {
+      if (!id) return;
+      const collectible = state.collectibles.get(id);
+      if (collectible) {
+        state.collectibles.set(id, {
+          ...collectible,
+          chewingBy: null,
+          chewingStartedAt: null,
+          chewingEndsAt: null,
+        });
+      }
+      if (state.activeChew && state.activeChew.id === id) {
+        state.activeChew = null;
+        state.pendingChew = null;
+        audio.stopChew();
+        setHudMessage('Snack interrupted!', 1200);
+      }
+      if (state.pendingChew === id) {
+        state.pendingChew = null;
+      }
+      refreshHud();
+    });
+
+    socket.on('chewRejected', ({ id, reason }) => {
+      if (state.pendingChew !== id) return;
+      state.pendingChew = null;
+      if (reason === 'claimed') {
+        setHudMessage('Another pup grabbed it!', 1400);
+      } else if (reason === 'collected') {
+        setHudMessage('Too late!', 1200);
+      } else if (reason === 'in-progress') {
+        setHudMessage('Already chewing!', 1200);
+      }
+      refreshHud();
+    });
+
     socket.on('itemCollected', ({ id, by, score, delta }) => {
       const collectible = state.collectibles.get(id);
       if (collectible) {
-        state.collectibles.set(id, { ...collectible, collected: true, collectedBy: by });
+        state.collectibles.set(id, {
+          ...collectible,
+          collected: true,
+          collectedBy: by,
+          chewingBy: null,
+          chewingStartedAt: null,
+          chewingEndsAt: null,
+        });
+      }
+
+      if (state.activeChew && state.activeChew.id === id) {
+        state.activeChew = null;
+        audio.stopChew();
+      }
+      if (state.pendingChew === id) {
+        state.pendingChew = null;
       }
 
       const collector = state.players.get(by);
@@ -438,6 +702,11 @@
           setHudMessage(`${itemName} ${sign}${delta}`, 1800);
         } else {
           refreshHud();
+        }
+        if (delta > 0) {
+          audio.playGoodSnack();
+        } else if (delta < 0) {
+          audio.playBadSnack();
         }
       } else {
         refreshHud();
@@ -457,13 +726,21 @@
     if (state.keys.left) vel.x -= 1;
     if (state.keys.right) vel.x += 1;
 
-    if (vel.x !== 0 || vel.y !== 0) {
+    const moving = vel.x !== 0 || vel.y !== 0;
+
+    if (moving) {
       const len = Math.hypot(vel.x, vel.y) || 1;
       vel.x /= len;
       vel.y /= len;
       player.x += vel.x * speed * delta;
       player.y += vel.y * speed * delta;
       player.facing = Math.atan2(vel.y, vel.x);
+      if (timestamp - state.lastFootstep > 320) {
+        audio.playFootstep();
+        state.lastFootstep = timestamp;
+      }
+    } else {
+      state.lastFootstep = timestamp - 320;
     }
 
     const bounds = state.level?.bounds;
@@ -486,13 +763,14 @@
 
   function attemptCollect() {
     if (!state.localId || !state.socket || !state.socket.connected) return;
+    if (state.activeChew || state.pendingChew) return;
     const player = state.players.get(state.localId);
     if (!player) return;
 
     let target = null;
     let closest = Infinity;
     for (const collectible of state.collectibles.values()) {
-      if (!collectible || collectible.collected) continue;
+      if (!collectible || collectible.collected || collectible.chewingBy) continue;
       const radius = collectible.radius || collectible.width || 24;
       const reach = radius + 36;
       const dx = player.x - collectible.x;
@@ -505,7 +783,8 @@
     }
 
     if (target) {
-      state.socket.emit('collectItem', { collectibleId: target.id });
+      state.pendingChew = target.id;
+      state.socket.emit('startEating', { collectibleId: target.id });
     }
   }
 
@@ -562,6 +841,29 @@
       if (collectible.outlineColor) {
         gameCtx.strokeStyle = collectible.outlineColor;
         gameCtx.lineWidth = 2;
+        gameCtx.stroke();
+      }
+
+      if (collectible.chewingBy) {
+        const total = collectible.chewingEndsAt && collectible.chewingStartedAt
+          ? collectible.chewingEndsAt - collectible.chewingStartedAt
+          : null;
+        const remaining = collectible.chewingEndsAt
+          ? Math.max(0, collectible.chewingEndsAt - performance.now())
+          : 0;
+        const progress = total && total > 0 ? 1 - remaining / total : 1;
+        const arcRadius = radius + 8;
+        const startAngle = -Math.PI / 2;
+        gameCtx.strokeStyle = collectible.chewingBy === state.localId ? '#ffa94d' : '#adb5bd';
+        gameCtx.lineWidth = 4;
+        gameCtx.beginPath();
+        gameCtx.arc(
+          collectible.x,
+          collectible.y,
+          arcRadius,
+          startAngle,
+          startAngle + Math.PI * 2 * Math.min(1, Math.max(0, progress))
+        );
         gameCtx.stroke();
       }
 
@@ -644,6 +946,7 @@
         state.collectibles = new Map();
         showScreen('game');
         setHudMessage('Connecting...');
+        audio.stopChew();
         startSocket(world, player);
       })
       .catch((err) => {
