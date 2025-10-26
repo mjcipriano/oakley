@@ -73,3 +73,4 @@ When extending Oakley’s World:
 - Client: `public/index.html` + `public/game.js` provide the welcome screen, customization UI, and canvas renderer with vanilla JavaScript.
 - Levels: `public/levels/level1.json` defines world bounds, spawn location, and simple decorations editable by kids.
 - Player setup: customization choices (name, fur color, collar color, hat) persist locally via cookies; random pups are generated when no cookie is present.
+- Collectibles: level JSON supplies 20+ food items with `tags` (e.g., `good`, `bad`, `toxic`); space-bar collection triggers Socket.IO events that adjust per-player scores and hide the treat for everyone.
