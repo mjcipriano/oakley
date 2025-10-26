@@ -165,8 +165,30 @@
           return;
         }
         withContext((now) => {
-          scheduleNoise(0.14, 0.12, now);
-          scheduleTone(180 + Math.random() * 40, 0.16, 'square', 0.04, now);
+          const baseFreq = 150 + Math.random() * 25;
+          const harmonics = [1, 1.9, 0.6];
+
+          harmonics.forEach((multiplier, index) => {
+            const osc = context.createOscillator();
+            osc.type = index === 0 ? 'triangle' : index === 1 ? 'square' : 'sine';
+            const gain = context.createGain();
+            const startGain = index === 0 ? 0.3 : index === 1 ? 0.18 : 0.08;
+            const length = index === 0 ? 0.22 : index === 1 ? 0.12 : 0.18;
+            const freq = baseFreq * multiplier;
+
+            osc.frequency.setValueAtTime(freq, now);
+            if (index === 0) {
+              osc.frequency.exponentialRampToValueAtTime(freq / 1.8, now + length);
+            }
+            gain.gain.setValueAtTime(startGain, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + length);
+            osc.connect(gain).connect(context.destination);
+            osc.start(now);
+            osc.stop(now + length + 0.02);
+          });
+
+          // Crunchy noise burst to mimic chomping texture.
+          scheduleNoise(0.09, 0.22, now);
         });
       };
 
@@ -447,6 +469,15 @@
 
   function attachKeyHandlers() {
     window.addEventListener('keydown', (event) => {
+      const target = event.target;
+      if (
+        target &&
+        (target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       if (event.code === 'Space') {
         if (!state.keys.space) {
           state.keys.space = true;
@@ -479,6 +510,15 @@
     });
 
     window.addEventListener('keyup', (event) => {
+      const target = event.target;
+      if (
+        target &&
+        (target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       if (event.code === 'Space') {
         state.keys.space = false;
         event.preventDefault();
@@ -867,11 +907,28 @@
         gameCtx.stroke();
       }
 
-      gameCtx.fillStyle = '#1d3557';
       gameCtx.font = '14px Trebuchet MS';
+      const label = collectible.name || collectible.shortName || collectible.id || 'Treat';
+      const textMetrics = gameCtx.measureText(label);
+      const paddingX = 8;
+      const paddingY = 4;
+      const boxWidth = textMetrics.width + paddingX * 2;
+      const boxHeight = 20;
+      const boxX = collectible.x - boxWidth / 2;
+      const boxY = collectible.y - radius - boxHeight - 6;
+
+      gameCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      gameCtx.fillRect(boxX, boxY, boxWidth, boxHeight);
+      gameCtx.strokeStyle = collectible.tags?.includes('bad') ? '#e03131' : '#1c7c54';
+      gameCtx.lineWidth = 1.5;
+      gameCtx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+      gameCtx.fillStyle = '#1d3557';
       gameCtx.textAlign = 'center';
-      const label = collectible.shortName || collectible.name || collectible.id || 'Treat';
-      gameCtx.fillText(label, collectible.x, collectible.y - radius - 4);
+      gameCtx.textBaseline = 'middle';
+      gameCtx.fillText(label, collectible.x, boxY + boxHeight / 2 + 1);
+
+      gameCtx.textBaseline = 'alphabetic';
     }
 
     for (const player of state.players.values()) {
