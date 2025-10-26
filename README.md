@@ -8,6 +8,7 @@ Oakley's World is a lightweight multiplayer browser playground where every playe
 - Instant join button creates a random pup when no customization is stored.
 - Multiplayer world synced via Socket.IO with simple broadcast updates.
 - JSON-driven level data (`public/levels/level1.json`) keeps the world layout editable without touching code.
+- Snackable collectibles with good/bad tags and a shared score that updates whenever pups chow down.
 
 ## Project Structure
 ```
@@ -35,6 +36,13 @@ OakleysWorld/
 
 ### Controls
 - `W`, `A`, `S`, `D` or arrow keys to scamper around.
+- `Space` to snack on an overlapping collectible.
+
+## Collectibles & Scoring
+- Level JSON defines each collectible with position, colors, and `tags`.
+- Tags include `good` or `bad` so you can wire different effects later.
+- Press `Space` when standing over a treat to collect it; good treats add to your score, bad snacks deduct points.
+- Collectible state is shared across all connected players through Socket.IO events.
 
 ## Editing the World
 - Update `public/levels/level1.json` to change bounds, spawn location, or add decorations.

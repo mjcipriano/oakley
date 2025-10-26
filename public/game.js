@@ -1,6 +1,7 @@
 (() => {
   const COOKIE_NAME = 'oakleyDog';
   const COOKIE_MAX_AGE_DAYS = 365;
+  const DEFAULT_LEVEL = 'level1';
 
   const FUR_COLORS = [
     { value: '#c68642', label: 'Cinnamon' },
@@ -57,10 +58,14 @@
     level: null,
     worldName: null,
     players: new Map(),
+    collectibles: new Map(),
     localId: null,
-    keys: { up: false, down: false, left: false, right: false },
+    keys: { up: false, down: false, left: false, right: false, space: false },
     lastNetworkSend: 0,
     camera: { x: 0, y: 0 },
+    levelName: DEFAULT_LEVEL,
+    hudMessage: '',
+    messageTimeout: null,
   };
 
   function populateSelect(select, options) {
@@ -249,12 +254,50 @@
     return Math.max(min, Math.min(max, value));
   }
 
-  function setHud(text) {
-    hud.textContent = text;
+  function refreshHud() {
+    const parts = [];
+    if (state.worldName) {
+      parts.push(`World: ${state.worldName}`);
+    }
+    if (state.dog) {
+      parts.push(`Pup: ${state.dog.name}`);
+    }
+    const score = state.players.get(state.localId)?.score ?? 0;
+    parts.push(`Score: ${score}`);
+    parts.push('Move: WASD/Arrows');
+    parts.push('Snack: Space');
+    if (state.hudMessage) {
+      parts.push(state.hudMessage);
+    }
+    hud.textContent = parts.join(' | ');
+  }
+
+  function setHudMessage(message, duration = 0) {
+    state.hudMessage = message || '';
+    if (state.messageTimeout) {
+      clearTimeout(state.messageTimeout);
+      state.messageTimeout = null;
+    }
+    if (duration > 0 && message) {
+      state.messageTimeout = window.setTimeout(() => {
+        state.hudMessage = '';
+        state.messageTimeout = null;
+        refreshHud();
+      }, duration);
+    }
+    refreshHud();
   }
 
   function attachKeyHandlers() {
     window.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        if (!state.keys.space) {
+          state.keys.space = true;
+          attemptCollect();
+        }
+        event.preventDefault();
+        return;
+      }
       switch (event.key.toLowerCase()) {
         case 'arrowup':
         case 'w':
@@ -279,6 +322,11 @@
     });
 
     window.addEventListener('keyup', (event) => {
+      if (event.code === 'Space') {
+        state.keys.space = false;
+        event.preventDefault();
+        return;
+      }
       switch (event.key.toLowerCase()) {
         case 'arrowup':
         case 'w':
@@ -304,7 +352,8 @@
   }
 
   function fetchLevel() {
-    return fetch('levels/level1.json')
+    const levelUrl = `levels/${DEFAULT_LEVEL}.json`;
+    return fetch(levelUrl)
       .then((response) => {
         if (!response.ok) {
           throw new Error('Failed to load level file.');
@@ -313,6 +362,7 @@
       })
       .then((level) => {
         state.level = level;
+        state.levelName = DEFAULT_LEVEL;
         return level;
       });
   }
@@ -324,30 +374,74 @@
 
     socket.on('connect', () => {
       state.localId = socket.id;
-      socket.emit('joinWorld', { worldName, player });
-      state.players.set(socket.id, { ...player, id: socket.id });
-      setHud(`World: ${worldName} | Pup: ${state.dog.name} | WASD/Arrow keys to move`);
+      socket.emit('joinWorld', { worldName, player, levelName: state.levelName });
+      state.players.set(socket.id, { ...player, id: socket.id, score: player.score ?? 0 });
+      setHudMessage('Connected!', 1500);
     });
 
-    socket.on('worldData', ({ players }) => {
-      state.players = new Map(players.map((p) => [p.id, p]));
+    socket.on('worldData', ({ players, collectibles, levelName }) => {
+      state.players = new Map(
+        (players || []).map((p) => [p.id, { ...p, score: typeof p.score === 'number' ? p.score : 0 }])
+      );
+      state.collectibles = new Map(
+        (collectibles || []).map((item) => [item.id, { ...item }])
+      );
+      if (levelName) {
+        state.levelName = levelName;
+      }
+      refreshHud();
     });
 
     socket.on('playerJoined', (playerInfo) => {
-      state.players.set(playerInfo.id, playerInfo);
+      state.players.set(playerInfo.id, {
+        ...playerInfo,
+        score: typeof playerInfo.score === 'number' ? playerInfo.score : 0,
+      });
+      refreshHud();
     });
 
     socket.on('playerMoved', (playerInfo) => {
       const existing = state.players.get(playerInfo.id);
       if (existing) {
-        state.players.set(playerInfo.id, { ...existing, ...playerInfo });
+        const nextScore =
+          typeof playerInfo.score === 'number' ? playerInfo.score : existing.score;
+        state.players.set(playerInfo.id, { ...existing, ...playerInfo, score: nextScore });
       } else {
-        state.players.set(playerInfo.id, playerInfo);
+        state.players.set(playerInfo.id, {
+          ...playerInfo,
+          score: typeof playerInfo.score === 'number' ? playerInfo.score : 0,
+        });
       }
     });
 
     socket.on('playerLeft', ({ id }) => {
       state.players.delete(id);
+      refreshHud();
+    });
+
+    socket.on('itemCollected', ({ id, by, score, delta }) => {
+      const collectible = state.collectibles.get(id);
+      if (collectible) {
+        state.collectibles.set(id, { ...collectible, collected: true, collectedBy: by });
+      }
+
+      const collector = state.players.get(by);
+      if (collector) {
+        const updated = { ...collector, score: typeof score === 'number' ? score : collector.score };
+        state.players.set(by, updated);
+      }
+
+      if (by === state.localId) {
+        const itemName = collectible?.name || 'Treat';
+        if (delta !== 0) {
+          const sign = delta > 0 ? '+' : '';
+          setHudMessage(`${itemName} ${sign}${delta}`, 1800);
+        } else {
+          refreshHud();
+        }
+      } else {
+        refreshHud();
+      }
     });
   }
 
@@ -387,6 +481,31 @@
         facing: player.facing,
       });
       state.lastNetworkSend = timestamp;
+    }
+  }
+
+  function attemptCollect() {
+    if (!state.localId || !state.socket || !state.socket.connected) return;
+    const player = state.players.get(state.localId);
+    if (!player) return;
+
+    let target = null;
+    let closest = Infinity;
+    for (const collectible of state.collectibles.values()) {
+      if (!collectible || collectible.collected) continue;
+      const radius = collectible.radius || collectible.width || 24;
+      const reach = radius + 36;
+      const dx = player.x - collectible.x;
+      const dy = player.y - collectible.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance <= reach && distance < closest) {
+        closest = distance;
+        target = collectible;
+      }
+    }
+
+    if (target) {
+      state.socket.emit('collectItem', { collectibleId: target.id });
     }
   }
 
@@ -431,6 +550,28 @@
       gameCtx.fill();
     });
 
+    for (const collectible of state.collectibles.values()) {
+      if (!collectible || collectible.collected) continue;
+      const radius = collectible.radius || 22;
+      const baseColor = collectible.color || (collectible.tags?.includes('bad') ? '#ff6b6b' : '#74c69d');
+      gameCtx.fillStyle = baseColor;
+      gameCtx.beginPath();
+      gameCtx.ellipse(collectible.x, collectible.y, radius, radius * 0.75, 0, 0, Math.PI * 2);
+      gameCtx.fill();
+
+      if (collectible.outlineColor) {
+        gameCtx.strokeStyle = collectible.outlineColor;
+        gameCtx.lineWidth = 2;
+        gameCtx.stroke();
+      }
+
+      gameCtx.fillStyle = '#1d3557';
+      gameCtx.font = '14px Trebuchet MS';
+      gameCtx.textAlign = 'center';
+      const label = collectible.shortName || collectible.name || collectible.id || 'Treat';
+      gameCtx.fillText(label, collectible.x, collectible.y - radius - 4);
+    }
+
     for (const player of state.players.values()) {
       drawDog(gameCtx, player, player.x, player.y, 1);
       gameCtx.fillStyle = '#1d3557';
@@ -474,6 +615,7 @@
     };
     saveDog(dog);
     showScreen('welcome');
+    refreshHud();
   }
 
   function handleJoin() {
@@ -496,10 +638,12 @@
           x: spawn.x + Math.random() * 60 - 30,
           y: spawn.y + Math.random() * 60 - 30,
           facing: 0,
+          score: 0,
         };
         state.players = new Map();
+        state.collectibles = new Map();
         showScreen('game');
-        setHud('Connecting...');
+        setHudMessage('Connecting...');
         startSocket(world, player);
       })
       .catch((err) => {
@@ -560,6 +704,7 @@
 
     attachKeyHandlers();
 
+    refreshHud();
     requestAnimationFrame(gameLoop);
   }
 
